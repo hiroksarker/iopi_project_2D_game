@@ -1,4 +1,4 @@
-// Game variables
+// IoPI Game variables
 let gameChar_x;
 let gameChar_y;
 let floorPos_y;
