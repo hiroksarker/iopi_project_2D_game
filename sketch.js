@@ -1,29 +1,32 @@
-// IoPI Game variables
+// Game variables
+const gravity = 0.5;
+
+// Character variables
 let gameChar_x;
 let gameChar_y;
 let floorPos_y;
 let scrollPos;
 let gameChar_world_x;
+let jumpVelocity = 0;
 
-let isLeft;
-let isRight;
-let isFalling;
-let isPlummeting;
+// Game state
+let isLeft = false;
+let isRight = false;
+let isFalling = false;
+let isPlummeting = false;
+let isJumping = false;
+let isGameOver = false;
 
+// Game score and lives
+let lives;
+let gameScore;
+
+// Game objects
+let flagpole;
 let treePos_x;
 let treePos_y;
-
-let canyon;
-let collectables;
-let mountain;
 let clouds;
-
-let isJumping = false;
-let jumpVelocity = 0;
-let gravity = 0.5;
-
-let isGameOver = false;
-let game_score = 0;
+let mountain;
 
 // Refactored background items
 let backgrounds = {
@@ -43,17 +46,21 @@ function setup() {
     floorPos_y = height * 0.75;
     startGame();
 }
-
 function draw() {
+    // Draw sky background
     background(100, 155, 255);
     
+    // Draw ground
     noStroke();
     fill(102, 155, 51);
     rect(0, floorPos_y, width, height - floorPos_y);
     
+    // Begin world scrolling for scenery and game objects
     push();
     translate(scrollPos, 0);
     
+    // Draw background elements
+    drawFlagpole();
     drawMountains();
     drawClouds();
     drawTrees();
@@ -77,80 +84,111 @@ function draw() {
     // Draw game character
     drawGameChar();
     
-    // Draw score and helper text
-    fill(255);
-    noStroke();
-    textSize(24);
-    textAlign(LEFT);
-    text('Score: ' + game_score + '/' + gameObjects.collectables.length, 20, 30);
+    // Draw game status (score, lives, etc.)
+    drawGameStatus();
     
     // Game logic updates
-    if (!isGameOver) {
-        // Character movement
-        if (isLeft) {
-            if (gameChar_x > width * 0.2) {
+    if(!isGameOver) {
+        // Character movement with improved boundaries
+        if(isLeft) {
+            if(gameChar_x > width * 0.2) {
                 gameChar_x -= 5;
             } else {
-                scrollPos += 5;
+                // Only scroll if we're not at the start of the level
+                if(scrollPos < 0) {
+                    scrollPos += 5;
+                } else {
+                    // Allow character to move to the edge of screen when at start
+                    if(gameChar_x > 0) {
+                        gameChar_x -= 5;
+                    }
+                }
             }
         }
         
-        if (isRight) {
-            if (gameChar_x < width * 0.8) {
+        if(isRight) {
+            if(gameChar_x < width * 0.8) {
                 gameChar_x += 5;
             } else {
-                scrollPos -= 5;
+                // Only scroll if we haven't reached the end (flagpole)
+                if(gameChar_world_x < flagpole.x_pos + 100) {
+                    scrollPos -= 5;
+                } else {
+                    // Allow character to move to the edge of screen when at end
+                    if(gameChar_x < width) {
+                        gameChar_x += 5;
+                    }
+                }
             }
         }
 
+        // Update world position
         gameChar_world_x = gameChar_x - scrollPos;
 
-        // Jumping logic
-        if (isJumping) {
-            gameChar_y -= jumpVelocity;
-            jumpVelocity -= gravity;
+        // Clamp character position to prevent going off-screen
+        if(gameChar_x < 0) {
+            gameChar_x = 0;
+        }
+        if(gameChar_x > width) {
+            gameChar_x = width;
         }
 
-        if (gameChar_y >= floorPos_y && !isPlummeting) {
-            gameChar_y = floorPos_y;
-            isJumping = false;
-            jumpVelocity = 0;
-        }
+        // Check flagpole first
+        checkFlagpole();
         
-        // Check canyon collisions
-        for(let i = 0; i < gameObjects.canyons.length; i++) {
-            checkCanyon(gameObjects.canyons[i]);
-        }
-        
-        if (isPlummeting) {
-            gameChar_y += 5;
-            if (gameChar_y > height + 100) {
-                isGameOver = true;
+        // Only process jumping and falling if level is not complete
+        if(!flagpole.isReached) {
+            // Jumping logic
+            if(isJumping) {
+                gameChar_y -= jumpVelocity;
+                jumpVelocity -= gravity;
             }
-        }
 
-        if(game_score === gameObjects.collectables.length) {
-            isGameOver = true;
-        }
-    }
-    
-    // Draw game over text
-    if (isGameOver) {
-        textSize(32);
-        textAlign(CENTER);
-        if(game_score === gameObjects.collectables.length) {
-            fill(0, 255, 0);
-            text("Victory! All apples collected!\nScore: " + game_score + 
-                 "\nPress SPACE to restart", width/2, height/2);
-        } else {
-            fill(255, 0, 0);
+            // Ground collision and jump reset
+            if(gameChar_y >= floorPos_y && !isPlummeting) {
+                gameChar_y = floorPos_y;
+                isJumping = false;
+                jumpVelocity = 0;
+            }
+            
+            // Check canyon collisions
+            for(let i = 0; i < gameObjects.canyons.length; i++) {
+                checkCanyon(gameObjects.canyons[i]);
+            }
+            
+            // Handle plummeting
             if(isPlummeting) {
-                text("Game Over - You fell!\nScore: " + game_score + 
-                     "\nPress SPACE to restart", width/2, height/2);
-            } else {
-                text("Game Over!\nScore: " + game_score + 
-                     "\nPress SPACE to restart", width/2, height/2);
+                gameChar_y += 5;
             }
+
+            // Check if not over canyon when on ground
+            if (!isJumping && !isPlummeting) {
+                let isOverCanyon = false;
+                for (let i = 0; i < gameObjects.canyons.length; i++) {
+                    let canyon = gameObjects.canyons[i];
+                    if (gameChar_world_x > canyon.x_pos + 15 && 
+                        gameChar_world_x < canyon.x_pos + canyon.width - 15) {
+                        isOverCanyon = true;
+                        break;
+                    }
+                }
+                if (!isOverCanyon) {
+                    isPlummeting = false;
+                }
+            }
+
+            // Check player death
+            checkPlayerDie();
+        } else {
+            // When level is complete, ensure character stays on ground
+            gameChar_y = floorPos_y;
+            isPlummeting = false;
+            isJumping = false;
+        }
+        
+        // Update game over state if flagpole is reached
+        if(flagpole.isReached) {
+            isGameOver = true;
         }
     }
 }
@@ -161,34 +199,61 @@ function startGame() {
     gameChar_y = floorPos_y;
     scrollPos = 0;
     gameChar_world_x = gameChar_x - scrollPos;
+    jumpVelocity = 0;
     
     // Reset game state
     isLeft = false;
     isRight = false;
     isFalling = false;
     isPlummeting = false;
+    isJumping = false;
     isGameOver = false;
-    game_score = 0;
+    
+    // Initialize game score and lives
+    if (lives === undefined) {
+        lives = 3;
+    }
+    gameScore = 0;
+    
+    // Initialize canyons first
+    gameObjects.canyons = [
+        {
+            x_pos: 220,
+            width: 150,
+            depth: height - floorPos_y
+        },
+        {
+            x_pos: 570,
+            width: 120,
+            depth: height - floorPos_y
+        },
+        {
+            x_pos: 1000,
+            width: 180,
+            depth: height - floorPos_y
+        }
+    ];
+    
+    // Initialize flagpole after canyons
+    flagpole = {
+        x_pos: gameObjects.canyons[2].x_pos + gameObjects.canyons[2].width + 400,
+        isReached: false
+    };
 
     // Initialize tree position
     treePos_x = 200;
     treePos_y = floorPos_y;
     
-    // Initialize canyons - moved more to the left
+    // Initialize canyons
     gameObjects.canyons = [
         {
-            x_pos: 220,  // Changed from 400
+            x_pos: 220,
             width: 150,
             depth: height - floorPos_y
         },
         {
-            x_pos: 570,  // Changed from 800
+            x_pos: 570,
             width: 120,
-            depth: height - floorPos_y
-        },
-        {
-            x_pos: 1000,  // Changed from 1200
-            width: 180,
             depth: height - floorPos_y
         }
     ];
@@ -198,7 +263,7 @@ function startGame() {
         // Left side collectables
         {
             x_pos: gameObjects.canyons[0].x_pos - 300,
-            y_pos: floorPos_y - 120,  // High position
+            y_pos: floorPos_y - 120,
             size: 50,
             isFound: false,
             rotation: 0,
@@ -206,16 +271,16 @@ function startGame() {
         },
         {
             x_pos: gameObjects.canyons[0].x_pos - 100,
-            y_pos: floorPos_y - 180,  // Higher position
+            y_pos: floorPos_y - 180,
             size: 50,
             isFound: false,
             rotation: 0,
             hoverOffset: 0
         },
-        // Right side collectables (mirroring left side pattern)
+        // Right side collectables
         {
             x_pos: gameObjects.canyons[0].x_pos + gameObjects.canyons[0].width + 100,
-            y_pos: floorPos_y - 180,  // Matching left side height
+            y_pos: floorPos_y - 180,
             size: 50,
             isFound: false,
             rotation: 0,
@@ -223,15 +288,6 @@ function startGame() {
         },
         {
             x_pos: gameObjects.canyons[0].x_pos + gameObjects.canyons[0].width + 300,
-            y_pos: floorPos_y - 120,  // Matching left side height
-            size: 50,
-            isFound: false,
-            rotation: 0,
-            hoverOffset: 0
-        },
-        // Repeating pattern for other canyons
-        {
-            x_pos: gameObjects.canyons[1].x_pos - 300,
             y_pos: floorPos_y - 120,
             size: 50,
             isFound: false,
@@ -261,38 +317,6 @@ function startGame() {
             isFound: false,
             rotation: 0,
             hoverOffset: 0
-        },
-        {
-            x_pos: gameObjects.canyons[2].x_pos - 300,
-            y_pos: floorPos_y - 120,
-            size: 50,
-            isFound: false,
-            rotation: 0,
-            hoverOffset: 0
-        },
-        {
-            x_pos: gameObjects.canyons[2].x_pos - 100,
-            y_pos: floorPos_y - 180,
-            size: 50,
-            isFound: false,
-            rotation: 0,
-            hoverOffset: 0
-        },
-        {
-            x_pos: gameObjects.canyons[2].x_pos + gameObjects.canyons[2].width + 100,
-            y_pos: floorPos_y - 180,
-            size: 50,
-            isFound: false,
-            rotation: 0,
-            hoverOffset: 0
-        },
-        {
-            x_pos: gameObjects.canyons[2].x_pos + gameObjects.canyons[2].width + 300,
-            y_pos: floorPos_y - 120,
-            size: 50,
-            isFound: false,
-            rotation: 0,
-            hoverOffset: 0
         }
     ];
     
@@ -310,6 +334,80 @@ function startGame() {
         { x_pos: 400, y_pos: floorPos_y, height: 150, width: 200 },
         { x_pos: 700, y_pos: floorPos_y, height: 400, width: 500 }
     ];
+}
+
+// New function to draw flagpole
+function drawFlagpole() {
+    push();
+    strokeWeight(5);
+    stroke(180);
+    line(flagpole.x_pos, floorPos_y, flagpole.x_pos, floorPos_y - 250);
+    fill(255, 0, 0);
+    noStroke();
+    
+    if(flagpole.isReached) {
+        rect(flagpole.x_pos, floorPos_y - 250, 50, 50);
+    } else {
+        rect(flagpole.x_pos, floorPos_y - 50, 50, 50);
+    }
+    pop();
+}
+
+// New function to check flagpole
+function checkFlagpole() {
+    let d = abs(gameChar_world_x - flagpole.x_pos);
+    
+    if(d < 15) {
+        flagpole.isReached = true;
+    }
+}
+
+// New function to check player die
+function checkPlayerDie() {
+    if(gameChar_y > height) {
+        if(lives > 0) {
+            lives -= 1;
+            if(lives > 0) {
+                startGame();
+                return;
+            }
+        }
+        isGameOver = true;
+    }
+}
+
+// New function to draw game status
+function drawGameStatus() {
+    fill(255);
+    noStroke();
+    textSize(24);
+    
+    // Draw score
+    textAlign(LEFT);
+    text('Score: ' + gameScore, 20, 30);
+    
+    // Draw lives
+    text('Lives: ' + lives, 20, 60);
+    
+    // Game over or level complete text
+    if(isGameOver) {
+        textSize(32);
+        textAlign(CENTER);
+        
+        if(flagpole.isReached) {
+            fill(0, 255, 0);
+            text("Level Complete!\nScore: " + gameScore + 
+                 "\nPress SPACE to restart", width/2, height/2);
+        } else if(lives < 1) {
+            fill(255, 0, 0);
+            text("Game Over - Out of Lives!\nScore: " + gameScore + 
+                 "\nPress SPACE to restart", width/2, height/2);
+        } else {
+            fill(255, 0, 0);
+            text("Game Over!\nScore: " + gameScore + 
+                 "\nPress SPACE to restart", width/2, height/2);
+        }
+    }
 }
 
 function drawCollectable(collectable) {
@@ -350,12 +448,13 @@ function checkCollectable(collectable) {
         let d = dist(gameChar_world_x, gameChar_y, 
                      collectable.x_pos, collectable.y_pos);
         
-        if (d < collectable.size * 0.8) {
+        if(d < collectable.size * 0.8) {
             collectable.isFound = true;
-            game_score += 1;
+            gameScore += 1;
         }
     }
 }
+
 
 function drawCanyon(canyon) {
     fill(139, 69, 19);
@@ -383,12 +482,11 @@ function drawCanyon(canyon) {
 }
 
 function checkCanyon(canyon) {
-    // Only check for canyon collision when character is directly over the canyon
-    if (gameChar_world_x > canyon.x_pos + 15 && 
-        gameChar_world_x < canyon.x_pos + canyon.width - 15) {
-        
-        // Only start plummeting if we're actually on the ground level
-        if (gameChar_y >= floorPos_y) {
+    // Only check for canyon collision when character is at ground level
+    if (gameChar_y >= floorPos_y) {
+        // Make sure character is actually over the canyon
+        if (gameChar_world_x > canyon.x_pos + 15 && 
+            gameChar_world_x < canyon.x_pos + canyon.width - 15) {
             isPlummeting = true;
         }
     }
